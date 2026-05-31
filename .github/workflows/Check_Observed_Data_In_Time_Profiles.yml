@@ -1,0 +1,81 @@
+name: Check Observed Data in Time Profiles
+
+on:
+  workflow_dispatch:
+    inputs:
+      qualification-plan:
+        description: 'Path to the qualification plan JSON file'
+        required: false
+        default: 'Qualification/input/qualification_plan.json'
+        type: string
+      observed-data-sets-to-ignore:
+        description: 'List of observed data set names to ignore (one per line)'
+        required: false
+        type: string
+  pull_request:
+  push:
+    branches-ignore:
+      - master
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check-observed-data:
+    runs-on: ubuntu-latest
+    name: Check Observed Data Sets in Time Profiles
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Prepare ignore list
+        id: prepare-ignore
+        run: |
+          # Create a file with the ignore list if provided
+          if [ -n "${{ inputs.observed-data-sets-to-ignore }}" ]; then
+            echo "Processing ignore list..."
+            echo "${{ inputs.observed-data-sets-to-ignore }}" > /tmp/ignore-list.txt
+
+            # Build the command line arguments for --ignore
+            IGNORE_ARGS=""
+            while IFS= read -r line; do
+              # Skip empty lines
+              if [ -n "$line" ]; then
+                IGNORE_ARGS="$IGNORE_ARGS --ignore \"$line\""
+              fi
+            done < /tmp/ignore-list.txt
+
+            echo "ignore-args=$IGNORE_ARGS" >> $GITHUB_OUTPUT
+          else
+            echo "No ignore list provided"
+            echo "ignore-args=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine qualification plan path
+        id: plan-path
+        run: |
+          if [ -n "${{ inputs.qualification-plan }}" ]; then
+            echo "plan-path=${{ inputs.qualification-plan }}" >> $GITHUB_OUTPUT
+          else
+            echo "plan-path=Qualification/input/qualification_plan.json" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run observed data check
+        run: |
+          PLAN_PATH="${{ steps.plan-path.outputs.plan-path }}"
+          IGNORE_ARGS="${{ steps.prepare-ignore.outputs.ignore-args }}"
+
+          echo "Checking qualification plan: $PLAN_PATH"
+
+          if [ -n "$IGNORE_ARGS" ]; then
+            eval "python3 .github/scripts/check-qualification-plan-time-profiles-observed-data.py --qualification-plan \"$PLAN_PATH\" $IGNORE_ARGS"
+          else
+            python3 .github/scripts/check-qualification-plan-time-profiles-observed-data.py --qualification-plan "$PLAN_PATH"
+          fi
